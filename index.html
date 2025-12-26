@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Limb Combat Prototype</title>
+<style>
+body {
+  font-family: monospace;
+  background: #111;
+  color: #eee;
+  padding: 20px;
+}
+button {
+  margin: 4px;
+  padding: 6px 10px;
+  background: #333;
+  color: #eee;
+  border: 1px solid #555;
+  cursor: pointer;
+}
+button:hover { background: #555; }
+#log { white-space: pre-wrap; margin-top: 20px; }
+</style>
+</head>
+<body>
+
+<h1>Turn-Based Limb Combat</h1>
+<div id="actions"></div>
+<div id="log"></div>
+
+<script>
+const log = document.getElementById("log");
+const actions = document.getElementById("actions");
+
+function createFighter(name) {
+  return {
+    name,
+    alive: true,
+    limbs: {
+      head: { hp: 10, max: 10 },
+      torso: { hp: 20, max: 20 },
+      leftArm: { hp: 8, max: 8 },
+      rightArm: { hp: 8, max: 8 },
+      leftLeg: { hp: 8, max: 8 },
+      rightLeg: { hp: 8, max: 8 }
+    }
+  };
+}
+
+const player = createFighter("You");
+const enemy = createFighter("Enemy");
+
+function write(text) {
+  log.textContent += text + "\n";
+  log.scrollTop = log.scrollHeight;
+}
+
+function isDead(fighter) {
+  return fighter.limbs.head.hp <= 0 || fighter.limbs.torso.hp <= 0;
+}
+
+function attack(attacker, defender, limb) {
+  if (!defender.alive) return;
+
+  const dmg = Math.floor(Math.random() * 4) + 2;
+  defender.limbs[limb].hp -= dmg;
+
+  write(`${attacker.name} strikes ${defender.name}'s ${limb} for ${dmg} damage.`);
+
+  if (defender.limbs[limb].hp <= 0) {
+    write(`${defender.name}'s ${limb} is destroyed!`);
+  }
+
+  if (isDead(defender)) {
+    defender.alive = false;
+    write(`${defender.name} is dead.`);
+  }
+}
+
+function enemyTurn() {
+  if (!enemy.alive) return;
+
+  const limbs = Object.keys(player.limbs);
+  const target = limbs[Math.floor(Math.random() * limbs.length)];
+  attack(enemy, player, target);
+
+  if (!player.alive) {
+    actions.innerHTML = "";
+    write("You have died.");
+  }
+}
+
+function playerTurn() {
+  actions.innerHTML = "<h3>Choose a limb to attack:</h3>";
+  Object.keys(enemy.limbs).forEach(limb => {
+    if (enemy.limbs[limb].hp > 0) {
+      const btn = document.createElement("button");
+      btn.textContent = limb;
+      btn.onclick = () => {
+        attack(player, enemy, limb);
+        actions.innerHTML = "";
+        if (enemy.alive) enemyTurn();
+      };
+      actions.appendChild(btn);
+    }
+  });
+}
+
+write("Combat begins.");
+playerTurn();
+</script>
+
+</body>
+</html>
