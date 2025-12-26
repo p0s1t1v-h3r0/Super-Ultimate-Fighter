@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Limb Combat Prototype</title>
+<title>Super Ultimate Fighter - MMA Edition</title>
 <style>
 body {
   font-family: monospace;
@@ -19,20 +19,24 @@ button {
   cursor: pointer;
 }
 button:hover { background: #555; }
-#log { white-space: pre-wrap; margin-top: 20px; }
+#actions { margin-top: 20px; }
+#log { white-space: pre-wrap; margin-top: 20px; border-top: 1px solid #555; padding-top: 10px; }
+.limb-status { margin-top: 10px; }
 </style>
 </head>
 <body>
 
-<h1>Turn-Based Limb Combat</h1>
+<h1>Super Ultimate Fighter - MMA Edition</h1>
+<div id="limbStatus"></div>
 <div id="actions"></div>
 <div id="log"></div>
 
 <script>
 const log = document.getElementById("log");
 const actions = document.getElementById("actions");
+const limbStatus = document.getElementById("limbStatus");
 
-function createFighter(name) {
+function Fighter(name) {
   return {
     name,
     alive: true,
@@ -43,70 +47,166 @@ function createFighter(name) {
       rightArm: { hp: 8, max: 8 },
       leftLeg: { hp: 8, max: 8 },
       rightLeg: { hp: 8, max: 8 }
-    }
+    },
+    status: { staggered: false, downed: false, stunned: false }
   };
 }
 
-const player = createFighter("You");
-const enemy = createFighter("Enemy");
+const player = Fighter("You");
+const enemy = Fighter("Enemy");
 
 function write(text) {
   log.textContent += text + "\n";
   log.scrollTop = log.scrollHeight;
 }
 
-function isDead(fighter) {
-  return fighter.limbs.head.hp <= 0 || fighter.limbs.torso.hp <= 0;
+function updateLimbStatus() {
+  limbStatus.innerHTML = `<strong>Your limbs:</strong> ${displayLimbs(player.limbs)}
+  <br><strong>Enemy limbs:</strong> ${displayLimbs(enemy.limbs)}`;
 }
 
-function attack(attacker, defender, limb) {
-  if (!defender.alive) return;
+function displayLimbs(limbs) {
+  return Object.entries(limbs).map(([name, limb]) => `${name}: ${limb.hp}/${limb.max}`).join(" | ");
+}
 
-  const dmg = Math.floor(Math.random() * 4) + 2;
+function isDead(f) {
+  return f.limbs.head.hp <= 0 || f.limbs.torso.hp <= 0;
+}
+
+function applyDamage(attacker, defender, limb, dmg) {
   defender.limbs[limb].hp -= dmg;
+  if (defender.limbs[limb].hp < 0) defender.limbs[limb].hp = 0;
 
-  write(`${attacker.name} strikes ${defender.name}'s ${limb} for ${dmg} damage.`);
+  write(`${attacker.name} hits ${defender.name}'s ${limb} for ${dmg} damage!`);
 
-  if (defender.limbs[limb].hp <= 0) {
-    write(`${defender.name}'s ${limb} is destroyed!`);
+  if (defender.limbs[limb].hp === 0) {
+    write(`${defender.name}'s ${limb} is destroyed or incapacitated!`);
   }
 
   if (isDead(defender)) {
     defender.alive = false;
-    write(`${defender.name} is dead.`);
+    write(`${defender.name} is knocked out!`);
   }
+}
+
+function playerMove(type, limb=null) {
+  if (!player.alive || !enemy.alive) return;
+
+  let dmg;
+  switch(type) {
+    case "jab":
+      dmg = Math.floor(Math.random() * 3) + 1;
+      break;
+    case "cross":
+      dmg = Math.floor(Math.random() * 4) + 2;
+      break;
+    case "hook":
+      dmg = Math.floor(Math.random() * 5) + 2;
+      break;
+    case "uppercut":
+      dmg = Math.floor(Math.random() * 6) + 2;
+      break;
+    case "kick":
+      dmg = Math.floor(Math.random() * 5) + 2;
+      break;
+    case "clinch":
+      dmg = Math.floor(Math.random() * 2) + 1;
+      enemy.status.staggered = true;
+      write("You clinch and stagger the enemy!");
+      break;
+    case "takedown":
+      dmg = Math.floor(Math.random() * 2) + 1;
+      enemy.status.downed = true;
+      write("You take down the enemy! They are now downed and vulnerable!");
+      break;
+    case "submission":
+      dmg = Math.floor(Math.random() * 3) + 1;
+      if (enemy.limbs.arm.hp <= 3 || enemy.limbs.leg.hp <=3) {
+        enemy.alive = false;
+        write("You lock in a submission and the enemy taps out! You win!");
+        updateLimbStatus();
+        actions.innerHTML = "";
+        return;
+      }
+      write("You attempt a submission but the enemy resists!");
+      break;
+  }
+
+  if (dmg && limb) applyDamage(player, enemy, limb, dmg);
+  updateLimbStatus();
+
+  if (enemy.alive) setTimeout(enemyTurn, 500);
+  else actions.innerHTML = "";
 }
 
 function enemyTurn() {
   if (!enemy.alive) return;
 
-  const limbs = Object.keys(player.limbs);
-  const target = limbs[Math.floor(Math.random() * limbs.length)];
-  attack(enemy, player, target);
+  // Simple AI: target weakest limb
+  const limbs = Object.keys(player.limbs).filter(l => player.limbs[l].hp>0);
+  const limb = limbs[Math.floor(Math.random() * limbs.length)];
+
+  // Choose move
+  const moves = ["jab","cross","hook","uppercut","kick","clinch","takedown"];
+  const move = moves[Math.floor(Math.random() * moves.length)];
+
+  let dmg;
+  switch(move) {
+    case "jab": dmg = Math.floor(Math.random() * 3) + 1; break;
+    case "cross": dmg = Math.floor(Math.random() * 4) + 2; break;
+    case "hook": dmg = Math.floor(Math.random() * 5) + 2; break;
+    case "uppercut": dmg = Math.floor(Math.random() * 6) + 2; break;
+    case "kick": dmg = Math.floor(Math.random() * 5) + 2; break;
+    case "clinch": dmg = Math.floor(Math.random() * 2) + 1; player.status.staggered = true; write("Enemy clinches you and you stagger!"); break;
+    case "takedown": dmg = Math.floor(Math.random() * 2) + 1; player.status.downed = true; write("Enemy takes you down! You are now downed!"); break;
+  }
+
+  if (dmg && move!=="clinch" && move!=="takedown") applyDamage(enemy, player, limb, dmg);
+  updateLimbStatus();
 
   if (!player.alive) {
     actions.innerHTML = "";
-    write("You have died.");
+    write("You have been knocked out!");
+  } else {
+    playerTurn();
   }
 }
 
 function playerTurn() {
-  actions.innerHTML = "<h3>Choose a limb to attack:</h3>";
-  Object.keys(enemy.limbs).forEach(limb => {
-    if (enemy.limbs[limb].hp > 0) {
-      const btn = document.createElement("button");
-      btn.textContent = limb;
-      btn.onclick = () => {
-        attack(player, enemy, limb);
-        actions.innerHTML = "";
-        if (enemy.alive) enemyTurn();
-      };
-      actions.appendChild(btn);
-    }
+  if (!player.alive || !enemy.alive) return;
+
+  actions.innerHTML = "<h3>Choose your move:</h3>";
+
+  const strikeMoves = ["jab","cross","hook","uppercut","kick"];
+  strikeMoves.forEach(move => {
+    const btn = document.createElement("button");
+    btn.textContent = move;
+    btn.onclick = () => {
+      // After clicking move, select target limb
+      actions.innerHTML = `<h3>Target limb for ${move}:</h3>`;
+      Object.keys(enemy.limbs).forEach(limb => {
+        if (enemy.limbs[limb].hp>0) {
+          const limbBtn = document.createElement("button");
+          limbBtn.textContent = limb;
+          limbBtn.onclick = () => playerMove(move, limb);
+          actions.appendChild(limbBtn);
+        }
+      });
+    };
+    actions.appendChild(btn);
+  });
+
+  const grappleMoves = ["clinch","takedown","submission"];
+  grappleMoves.forEach(move => {
+    const btn = document.createElement("button");
+    btn.textContent = move;
+    btn.onclick = () => playerMove(move);
+    actions.appendChild(btn);
   });
 }
 
-write("Combat begins.");
+write("Fight begins! Choose your move.");
+updateLimbStatus();
 playerTurn();
 </script>
 
