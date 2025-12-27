@@ -61,17 +61,17 @@ function createFighter(name) {
     balance: 100,
     delay: 0,
     buffs: {},
-limbs: {
-  head: { skull: 100, face: 100 },
-  torso: { chest: 100, liver: 100, solar: 100 },
-  leftArm: { shoulder: 100, forearm: 100, hand: 100 },
-  rightArm: { shoulder: 100, forearm: 100, hand: 100 },
-  leftLeg: { thigh: 100, knee: 100, calf: 100 },
-  rightLeg: { thigh: 100, knee: 100, calf: 100 }
-}
-
+    limbs: {
+      head: { skull: 100, face: 100 },
+      torso: { chest: 100, liver: 100, solar: 100 },
+      leftArm: { shoulder: 100, forearm: 100, hand: 100 },
+      rightArm: { shoulder: 100, forearm: 100, hand: 100 },
+      leftLeg: { thigh: 100, knee: 100, calf: 100 },
+      rightLeg: { thigh: 100, knee: 100, calf: 100 }
+    }
   };
 }
+
 
 let player = createFighter("You");
 let enemy = createFighter("Opponent");
@@ -89,7 +89,28 @@ let turnStart = Date.now();
 let logEl = document.getElementById("log");
 
 // ---------------- UTILS ----------------
+function applyPaceEffects(fighter, elapsed) {
+  if (elapsed <= 10) {
+    // fast, evasive
+    fighter.stamina -= 6;
+    fighter.delay += 0;
+    return { accuracy: -0.1 };
+  }
 
+  if (elapsed <= 20) {
+    // balanced
+    fighter.stamina -= 3;
+    fighter.delay += 1;
+    return { accuracy: 0 };
+  }
+
+  // slow, deliberate
+  fighter.stamina -= 1;
+  fighter.delay += 2;
+  return { accuracy: +0.15 };
+}
+
+  
 function log(text) {
   logEl.innerHTML += text + "<br>";
   logEl.scrollTop = logEl.scrollHeight;
@@ -128,7 +149,16 @@ function painTell(fighter) {
     log(`${fighter.name} looks unsteady on their feet.`);
   }
 }
-  
+  function legStability(fighter) {
+  const left = fighter.limbs.leftLeg.knee;
+  const right = fighter.limbs.rightLeg.knee;
+  const avg = (left + right) / 2;
+
+  if (avg < 30) return -30;
+  if (avg < 60) return -15;
+  return 0;
+}
+
   
 // ---------------- MOVE DEFINITIONS ----------------
 
@@ -206,23 +236,36 @@ function performMove(attacker, defender, moveKey) {
   attacker.delay += move.delay;
 
   let acc = move.accuracy || 1;
+  acc += attacker.tempAccuracyBonus || 0;
+
 
   if (attacker.buffs.accuracy) acc += attacker.buffs.accuracy.value;
   if (attacker.stamina < 30) acc -= 0.15;
 
   if (Math.random() < acc) {
-    if (move.damage) {
-      const parts = Object.keys(defender.limbs);
-      const hitPart = parts[Math.floor(Math.random() * parts.length)];
-      const limb = defender.limbs[hitPart];
-      const sub = Object.keys(limb)[Math.floor(Math.random() * Object.keys(limb).length)];
-      limb[sub] -= move.damage;
+if (move.damage) {
+  const parts = Object.keys(defender.limbs);
+  const hitPart = parts[Math.floor(Math.random() * parts.length)];
 
-      log(`${attacker.name} lands a ${move.name} on the ${hitPart}.`);
-      if (!defender.buffs.conceal) {
-        log(injuryDesc(defender.limbs[hitPart], hitPart));
-      }
-    }
+  const limb = defender.limbs[hitPart];
+  const sub = Object.keys(limb)[Math.floor(Math.random() * Object.keys(limb).length)];
+  limb[sub] -= move.damage;
+
+  defender.balance += legStability(defender);
+
+  log(`${attacker.name} lands a ${move.name} on the ${hitPart} (${sub}).`);
+
+  if (!defender.buffs.conceal) {
+    log(injuryDesc(limb[sub], `${hitPart} ${sub}`));
+  }
+
+  if (defender.balance <= 0) {
+    log(`${defender.name} loses balance and falls!`);
+    defender.delay += 2;
+    defender.balance = 20;
+  }
+}
+
 
     if (move.rangeChange) {
       attacker.range = defender.range = move.rangeChange;
@@ -295,18 +338,21 @@ Object.keys(MOVES).forEach(k => {
   }
 
   // ✅ NORMAL MOVES
-  btn.onclick = () => {
-    const elapsed = (Date.now() - turnStart) / 1000;
+btn.onclick = () => {
+  const elapsed = (Date.now() - turnStart) / 1000;
 
-    // pacing modifiers
-    if (elapsed < 10) player.stamina -= 2;
-    if (elapsed > 20) player.delay += 1;
+  const pace = applyPaceEffects(player, elapsed);
+  player.tempAccuracyBonus = pace.accuracy;
 
-    performMove(player, enemy, k);
-    enemyTurn();
-    turnStart = Date.now();
-    updateUI();
-  };
+  performMove(player, enemy, k);
+
+  player.tempAccuracyBonus = 0;
+
+  enemyTurn();
+  turnStart = Date.now();
+  updateUI();
+};
+
 
   actions.appendChild(btn);
 });
