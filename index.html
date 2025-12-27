@@ -61,14 +61,15 @@ function createFighter(name) {
     balance: 100,
     delay: 0,
     buffs: {},
-    limbs: {
-      head: 100,
-      torso: 100,
-      leftArm: 100,
-      rightArm: 100,
-      leftLeg: 100,
-      rightLeg: 100
-    }
+limbs: {
+  head: { skull: 100, face: 100 },
+  torso: { chest: 100, liver: 100, solar: 100 },
+  leftArm: { shoulder: 100, forearm: 100, hand: 100 },
+  rightArm: { shoulder: 100, forearm: 100, hand: 100 },
+  leftLeg: { thigh: 100, knee: 100, calf: 100 },
+  rightLeg: { thigh: 100, knee: 100, calf: 100 }
+}
+
   };
 }
 
@@ -76,6 +77,15 @@ let player = createFighter("You");
 let enemy = createFighter("Opponent");
 
 let turnStart = Date.now();
+  function getPaceModifier(seconds) {
+  if (seconds <= 10) {
+    return { stamina: -2, delay: 0, accuracy: -0.05 };
+  }
+  if (seconds <= 20) {
+    return { stamina: 0, delay: 1, accuracy: 0 };
+  }
+  return { stamina: -3, delay: 2, accuracy: +0.05 };
+}
 let logEl = document.getElementById("log");
 
 // ---------------- UTILS ----------------
@@ -101,6 +111,25 @@ function staminaDesc(v) {
   return "On the verge of collapse.";
 }
 
+function painTell(fighter) {
+  if (fighter.stamina < 30 && !fighter.buffs.conceal) {
+    log(`${fighter.name}'s breathing is heavy.`);
+  }
+  if (fighter.balance < 40) {
+    log(`${fighter.name} looks unsteady on their feet.`);
+  }
+}
+
+function painTell(fighter) {
+  if (fighter.stamina < 30 && !fighter.buffs.conceal) {
+    log(`${fighter.name}'s breathing is heavy.`);
+  }
+  if (fighter.balance < 40) {
+    log(`${fighter.name} looks unsteady on their feet.`);
+  }
+}
+  
+  
 // ---------------- MOVE DEFINITIONS ----------------
 
 const MOVES = {
@@ -160,8 +189,17 @@ const MOVES = {
   }
 };
 
+let bufferedDefense = null;
+
+function bufferDefense(moveKey) {
+  bufferedDefense = moveKey;
+  log(`You prepare to ${MOVES[moveKey].name.toLowerCase()}.`);
+}  
+
 // ---------------- TURN LOGIC ----------------
 
+
+  
 function performMove(attacker, defender, moveKey) {
   const move = MOVES[moveKey];
   attacker.stamina -= move.stamina;
@@ -176,7 +214,9 @@ function performMove(attacker, defender, moveKey) {
     if (move.damage) {
       const parts = Object.keys(defender.limbs);
       const hitPart = parts[Math.floor(Math.random() * parts.length)];
-      defender.limbs[hitPart] -= move.damage;
+      const limb = defender.limbs[hitPart];
+      const sub = Object.keys(limb)[Math.floor(Math.random() * Object.keys(limb).length)];
+      limb[sub] -= move.damage;
 
       log(`${attacker.name} lands a ${move.name} on the ${hitPart}.`);
       if (!defender.buffs.conceal) {
@@ -202,7 +242,11 @@ function performMove(attacker, defender, moveKey) {
     log(`${attacker.name}'s ${move.name} misses.`);
     attacker.balance -= move.balanceRisk || 5;
   }
+
+  painTell(attacker);
+  painTell(defender);
 }
+
 
 function enemyTurn() {
   if (enemy.delay > 0) {
@@ -235,21 +279,38 @@ function updateUI() {
   const actions = document.getElementById("actions");
   actions.innerHTML = "";
 
-  Object.keys(MOVES).forEach(k => {
-    const btn = document.createElement("button");
-    btn.innerText = MOVES[k].name;
-    btn.onclick = () => {
-      const elapsed = (Date.now() - turnStart) / 1000;
-      if (elapsed < 10) player.stamina -= 2; // evasive pacing
-      if (elapsed > 20) player.delay += 1;   // careful pacing penalty
+Object.keys(MOVES).forEach(k => {
+  const move = MOVES[k];
+  const btn = document.createElement("button");
+  btn.innerText = move.name;
 
-      performMove(player, enemy, k);
-      enemyTurn();
-      turnStart = Date.now();
+  // ✅ BUFFERED DEFENSIVE MOVES
+  if (move.defensive) {
+    btn.onclick = () => {
+      bufferDefense(k);
       updateUI();
     };
     actions.appendChild(btn);
-  });
+    return;
+  }
+
+  // ✅ NORMAL MOVES
+  btn.onclick = () => {
+    const elapsed = (Date.now() - turnStart) / 1000;
+
+    // pacing modifiers
+    if (elapsed < 10) player.stamina -= 2;
+    if (elapsed > 20) player.delay += 1;
+
+    performMove(player, enemy, k);
+    enemyTurn();
+    turnStart = Date.now();
+    updateUI();
+  };
+
+  actions.appendChild(btn);
+});
+
 }
 
 log("The fight begins.");
