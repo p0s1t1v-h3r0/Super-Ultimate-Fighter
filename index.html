@@ -2,212 +2,258 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Super Ultimate Fighter - MMA Edition</title>
+<title>Super Ultimate Fighter</title>
 <style>
 body {
+  background:#111;
+  color:#eee;
   font-family: monospace;
-  background: #111;
-  color: #eee;
-  padding: 20px;
+  padding:20px;
 }
 button {
-  margin: 4px;
-  padding: 6px 10px;
-  background: #333;
-  color: #eee;
-  border: 1px solid #555;
-  cursor: pointer;
+  margin:4px;
+  padding:8px;
+  background:#222;
+  color:#eee;
+  border:1px solid #555;
+  cursor:pointer;
 }
-button:hover { background: #555; }
-#actions { margin-top: 20px; }
-#log { white-space: pre-wrap; margin-top: 20px; border-top: 1px solid #555; padding-top: 10px; }
-.limb-status { margin-top: 10px; }
+button:hover { background:#333; }
+#log {
+  border:1px solid #444;
+  padding:10px;
+  height:300px;
+  overflow-y:auto;
+  background:#000;
+}
+.stat {
+  margin-bottom:6px;
+}
 </style>
 </head>
 <body>
 
-<h1>Super Ultimate Fighter - MMA Edition</h1>
-<div id="limbStatus"></div>
+<h1>Super Ultimate Fighter (Prototype)</h1>
+
+<div class="stat" id="status"></div>
+<div class="stat" id="range"></div>
+<div class="stat" id="stance"></div>
+<div class="stat" id="timer"></div>
+
+<h3>Actions</h3>
 <div id="actions"></div>
+
+<h3>Combat Log</h3>
 <div id="log"></div>
 
 <script>
-const log = document.getElementById("log");
-const actions = document.getElementById("actions");
-const limbStatus = document.getElementById("limbStatus");
+// ---------------- CORE DATA ----------------
 
-function Fighter(name) {
+const RANGES = ["Kickboxing", "Boxing", "Clinch", "Ground"];
+const STANCES = ["Orthodox", "Southpaw"];
+
+function createFighter(name) {
   return {
     name,
-    alive: true,
+    stance: Math.random() > 0.5 ? "Orthodox" : "Southpaw",
+    range: "Boxing",
+    stamina: 100,
+    balance: 100,
+    delay: 0,
+    buffs: {},
     limbs: {
-      head: { hp: 10, max: 10 },
-      torso: { hp: 20, max: 20 },
-      leftArm: { hp: 8, max: 8 },
-      rightArm: { hp: 8, max: 8 },
-      leftLeg: { hp: 8, max: 8 },
-      rightLeg: { hp: 8, max: 8 }
-    },
-    status: { staggered: false, downed: false, stunned: false }
+      head: 100,
+      torso: 100,
+      leftArm: 100,
+      rightArm: 100,
+      leftLeg: 100,
+      rightLeg: 100
+    }
   };
 }
 
-const player = Fighter("You");
-const enemy = Fighter("Enemy");
+let player = createFighter("You");
+let enemy = createFighter("Opponent");
 
-function write(text) {
-  log.textContent += text + "\n";
-  log.scrollTop = log.scrollHeight;
+let turnStart = Date.now();
+let logEl = document.getElementById("log");
+
+// ---------------- UTILS ----------------
+
+function log(text) {
+  logEl.innerHTML += text + "<br>";
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
-function updateLimbStatus() {
-  limbStatus.innerHTML = `<strong>Your limbs:</strong> ${displayLimbs(player.limbs)}
-  <br><strong>Enemy limbs:</strong> ${displayLimbs(enemy.limbs)}`;
+function injuryDesc(value, part) {
+  if (value > 75) return `${part} looks fine.`;
+  if (value > 50) return `${part} is bruised.`;
+  if (value > 25) return `${part} looks painful to use.`;
+  if (value > 10) return `${part} is badly compromised.`;
+  return `${part} is nearly unusable.`;
 }
 
-function displayLimbs(limbs) {
-  return Object.entries(limbs).map(([name, limb]) => `${name}: ${limb.hp}/${limb.max}`).join(" | ");
+function staminaDesc(v) {
+  if (v > 75) return "Breathing steady.";
+  if (v > 50) return "Breathing heavier.";
+  if (v > 25) return "Labored breathing.";
+  if (v > 10) return "Gasping for air.";
+  return "On the verge of collapse.";
 }
 
-function isDead(f) {
-  return f.limbs.head.hp <= 0 || f.limbs.torso.hp <= 0;
-}
+// ---------------- MOVE DEFINITIONS ----------------
 
-function applyDamage(attacker, defender, limb, dmg) {
-  defender.limbs[limb].hp -= dmg;
-  if (defender.limbs[limb].hp < 0) defender.limbs[limb].hp = 0;
-
-  write(`${attacker.name} hits ${defender.name}'s ${limb} for ${dmg} damage!`);
-
-  if (defender.limbs[limb].hp === 0) {
-    write(`${defender.name}'s ${limb} is destroyed or incapacitated!`);
+const MOVES = {
+  jab: {
+    name: "Jab",
+    stamina: 5,
+    accuracy: 0.8,
+    damage: 8,
+    delay: 1,
+    range: ["Boxing"],
+    risk: "Low"
+  },
+  cross: {
+    name: "Cross",
+    stamina: 8,
+    accuracy: 0.7,
+    damage: 14,
+    delay: 2,
+    range: ["Boxing"],
+    risk: "Medium"
+  },
+  heavyKick: {
+    name: "Heavy Kick",
+    stamina: 15,
+    accuracy: 0.5,
+    damage: 25,
+    delay: 4,
+    balanceRisk: 15,
+    range: ["Kickboxing"],
+    risk: "High"
+  },
+  clinch: {
+    name: "Enter Clinch",
+    stamina: 10,
+    accuracy: 0.7,
+    delay: 2,
+    rangeChange: "Clinch"
+  },
+  focus: {
+    name: "Sharpen Focus",
+    stamina: 6,
+    delay: 1,
+    buff: { accuracy: 0.15, turns: 3 }
+  },
+  pokerFace: {
+    name: "Poker Face",
+    stamina: 5,
+    delay: 1,
+    buff: { conceal: true, turns: 3 }
+  },
+  dodge: {
+    name: "Dodge (Buffered)",
+    stamina: 6,
+    accuracy: 0.6,
+    delay: 1,
+    defensive: true
   }
+};
 
-  if (isDead(defender)) {
-    defender.alive = false;
-    write(`${defender.name} is knocked out!`);
-  }
-}
+// ---------------- TURN LOGIC ----------------
 
-function playerMove(type, limb=null) {
-  if (!player.alive || !enemy.alive) return;
+function performMove(attacker, defender, moveKey) {
+  const move = MOVES[moveKey];
+  attacker.stamina -= move.stamina;
+  attacker.delay += move.delay;
 
-  let dmg;
-  switch(type) {
-    case "jab":
-      dmg = Math.floor(Math.random() * 3) + 1;
-      break;
-    case "cross":
-      dmg = Math.floor(Math.random() * 4) + 2;
-      break;
-    case "hook":
-      dmg = Math.floor(Math.random() * 5) + 2;
-      break;
-    case "uppercut":
-      dmg = Math.floor(Math.random() * 6) + 2;
-      break;
-    case "kick":
-      dmg = Math.floor(Math.random() * 5) + 2;
-      break;
-    case "clinch":
-      dmg = Math.floor(Math.random() * 2) + 1;
-      enemy.status.staggered = true;
-      write("You clinch and stagger the enemy!");
-      break;
-    case "takedown":
-      dmg = Math.floor(Math.random() * 2) + 1;
-      enemy.status.downed = true;
-      write("You take down the enemy! They are now downed and vulnerable!");
-      break;
-    case "submission":
-      dmg = Math.floor(Math.random() * 3) + 1;
-      if (enemy.limbs.arm.hp <= 3 || enemy.limbs.leg.hp <=3) {
-        enemy.alive = false;
-        write("You lock in a submission and the enemy taps out! You win!");
-        updateLimbStatus();
-        actions.innerHTML = "";
-        return;
+  let acc = move.accuracy || 1;
+
+  if (attacker.buffs.accuracy) acc += attacker.buffs.accuracy.value;
+  if (attacker.stamina < 30) acc -= 0.15;
+
+  if (Math.random() < acc) {
+    if (move.damage) {
+      const parts = Object.keys(defender.limbs);
+      const hitPart = parts[Math.floor(Math.random() * parts.length)];
+      defender.limbs[hitPart] -= move.damage;
+
+      log(`${attacker.name} lands a ${move.name} on the ${hitPart}.`);
+      if (!defender.buffs.conceal) {
+        log(injuryDesc(defender.limbs[hitPart], hitPart));
       }
-      write("You attempt a submission but the enemy resists!");
-      break;
+    }
+
+    if (move.rangeChange) {
+      attacker.range = defender.range = move.rangeChange;
+      log(`${attacker.name} forces the fight into the ${move.rangeChange}.`);
+    }
+
+    if (move.buff) {
+      attacker.buffs[moveKey] = {
+        value: move.buff.accuracy || null,
+        turns: move.buff.turns,
+        conceal: move.buff.conceal || false
+      };
+      log(`${attacker.name} looks composed and focused.`);
+    }
+
+  } else {
+    log(`${attacker.name}'s ${move.name} misses.`);
+    attacker.balance -= move.balanceRisk || 5;
   }
-
-  if (dmg && limb) applyDamage(player, enemy, limb, dmg);
-  updateLimbStatus();
-
-  if (enemy.alive) setTimeout(enemyTurn, 500);
-  else actions.innerHTML = "";
 }
 
 function enemyTurn() {
-  if (!enemy.alive) return;
-
-  // Simple AI: target weakest limb
-  const limbs = Object.keys(player.limbs).filter(l => player.limbs[l].hp>0);
-  const limb = limbs[Math.floor(Math.random() * limbs.length)];
-
-  // Choose move
-  const moves = ["jab","cross","hook","uppercut","kick","clinch","takedown"];
-  const move = moves[Math.floor(Math.random() * moves.length)];
-
-  let dmg;
-  switch(move) {
-    case "jab": dmg = Math.floor(Math.random() * 3) + 1; break;
-    case "cross": dmg = Math.floor(Math.random() * 4) + 2; break;
-    case "hook": dmg = Math.floor(Math.random() * 5) + 2; break;
-    case "uppercut": dmg = Math.floor(Math.random() * 6) + 2; break;
-    case "kick": dmg = Math.floor(Math.random() * 5) + 2; break;
-    case "clinch": dmg = Math.floor(Math.random() * 2) + 1; player.status.staggered = true; write("Enemy clinches you and you stagger!"); break;
-    case "takedown": dmg = Math.floor(Math.random() * 2) + 1; player.status.downed = true; write("Enemy takes you down! You are now downed!"); break;
+  if (enemy.delay > 0) {
+    enemy.delay--;
+    log("Opponent regains footing.");
+    return;
   }
 
-  if (dmg && move!=="clinch" && move!=="takedown") applyDamage(enemy, player, limb, dmg);
-  updateLimbStatus();
-
-  if (!player.alive) {
-    actions.innerHTML = "";
-    write("You have been knocked out!");
-  } else {
-    playerTurn();
-  }
+  const choices = ["jab", "cross", "focus"];
+  const choice = choices[Math.floor(Math.random() * choices.length)];
+  performMove(enemy, player, choice);
 }
 
-function playerTurn() {
-  if (!player.alive || !enemy.alive) return;
+// ---------------- UI ----------------
 
-  actions.innerHTML = "<h3>Choose your move:</h3>";
+function updateUI() {
+  document.getElementById("status").innerText =
+    `You: ${staminaDesc(player.stamina)} | Balance feels ${player.balance > 50 ? "stable" : "shaky"}`;
 
-  const strikeMoves = ["jab","cross","hook","uppercut","kick"];
-  strikeMoves.forEach(move => {
+  document.getElementById("range").innerText =
+    `Range: ${player.range}`;
+
+  document.getElementById("stance").innerText =
+    `Stance: ${player.stance}`;
+
+  const elapsed = Math.floor((Date.now() - turnStart) / 1000);
+  document.getElementById("timer").innerText =
+    `Turn Timer: ${elapsed}s`;
+
+  const actions = document.getElementById("actions");
+  actions.innerHTML = "";
+
+  Object.keys(MOVES).forEach(k => {
     const btn = document.createElement("button");
-    btn.textContent = move;
+    btn.innerText = MOVES[k].name;
     btn.onclick = () => {
-      // After clicking move, select target limb
-      actions.innerHTML = `<h3>Target limb for ${move}:</h3>`;
-      Object.keys(enemy.limbs).forEach(limb => {
-        if (enemy.limbs[limb].hp>0) {
-          const limbBtn = document.createElement("button");
-          limbBtn.textContent = limb;
-          limbBtn.onclick = () => playerMove(move, limb);
-          actions.appendChild(limbBtn);
-        }
-      });
+      const elapsed = (Date.now() - turnStart) / 1000;
+      if (elapsed < 10) player.stamina -= 2; // evasive pacing
+      if (elapsed > 20) player.delay += 1;   // careful pacing penalty
+
+      performMove(player, enemy, k);
+      enemyTurn();
+      turnStart = Date.now();
+      updateUI();
     };
     actions.appendChild(btn);
   });
-
-  const grappleMoves = ["clinch","takedown","submission"];
-  grappleMoves.forEach(move => {
-    const btn = document.createElement("button");
-    btn.textContent = move;
-    btn.onclick = () => playerMove(move);
-    actions.appendChild(btn);
-  });
 }
 
-write("Fight begins! Choose your move.");
-updateLimbStatus();
-playerTurn();
+log("The fight begins.");
+updateUI();
 </script>
 
 </body>
