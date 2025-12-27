@@ -53,14 +53,19 @@ const RANGES = ["Kickboxing", "Boxing", "Clinch", "Ground"];
 const STANCES = ["Orthodox", "Southpaw"];
 
 function createFighter(name) {
-  return {
+  const fighter = {
     name,
     stance: Math.random() > 0.5 ? "Orthodox" : "Southpaw",
     range: "Boxing",
+
     stamina: 100,
     balance: 100,
     delay: 0,
+
     buffs: {},
+    tempAccuracy: 0,
+    knockedDown: false,
+
     limbs: {
       head: { skull: 100, face: 100 },
       torso: { chest: 100, liver: 100, solar: 100 },
@@ -70,96 +75,125 @@ function createFighter(name) {
       rightLeg: { thigh: 100, knee: 100, calf: 100 }
     }
   };
+
+  return fighter;
 }
 
-
+// ---------- GLOBAL STATE ----------
 let player = createFighter("You");
 let enemy = createFighter("Opponent");
 
 let turnStart = Date.now();
-  function getPaceModifier(seconds) {
-  if (seconds <= 10) {
-    return { stamina: -2, delay: 0, accuracy: -0.05 };
-  }
-  if (seconds <= 20) {
-    return { stamina: 0, delay: 1, accuracy: 0 };
-  }
-  return { stamina: -3, delay: 2, accuracy: +0.05 };
-}
-let logEl = document.getElementById("log");
 
-// ---------------- UTILS ----------------
-function applyPaceEffects(fighter, elapsed) {
-  if (elapsed <= 10) {
-    // fast, evasive
-    fighter.stamina -= 6;
-    fighter.delay += 0;
-    return { accuracy: -0.1 };
-  }
+// ---------- LOG ----------
+const logEl = document.getElementById("log");
 
-  if (elapsed <= 20) {
-    // balanced
-    fighter.stamina -= 3;
-    fighter.delay += 1;
-    return { accuracy: 0 };
-  }
-
-  // slow, deliberate
-  fighter.stamina -= 1;
-  fighter.delay += 2;
-  return { accuracy: +0.15 };
-}
-
-  
 function log(text) {
-  logEl.innerHTML += text + "<br>";
+  const p = document.createElement("p");
+  p.textContent = text;
+  logEl.appendChild(p);
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function injuryDesc(value, part) {
-  if (value > 75) return `${part} looks fine.`;
-  if (value > 50) return `${part} is bruised.`;
-  if (value > 25) return `${part} looks painful to use.`;
-  if (value > 10) return `${part} is badly compromised.`;
-  return `${part} is nearly unusable.`;
+// ---------------- UTILS ----------------
+
+// ---------- RANDOM ----------
+function rand(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function staminaDesc(v) {
-  if (v > 75) return "Breathing steady.";
-  if (v > 50) return "Breathing heavier.";
-  if (v > 25) return "Labored breathing.";
-  if (v > 10) return "Gasping for air.";
-  return "On the verge of collapse.";
+function randomBodyPart() {
+  return rand(["head", "torso", "leftArm", "rightArm", "leftLeg", "rightLeg"]);
 }
 
-function painTell(fighter) {
-  if (fighter.stamina < 30 && !fighter.buffs.conceal) {
-    log(`${fighter.name}'s breathing is heavy.`);
-  }
-  if (fighter.balance < 40) {
-    log(`${fighter.name} looks unsteady on their feet.`);
+// ---------- BALANCE ----------
+function applyBalanceDamage(defender, amount) {
+  defender.balance -= amount;
+
+  if (defender.balance <= 0 && !defender.knockedDown) {
+    defender.knockedDown = true;
+    defender.delay += 2;
+    defender.balance = 30;
+    log(`${defender.name} is knocked down!`);
   }
 }
 
-function painTell(fighter) {
-  if (fighter.stamina < 30 && !fighter.buffs.conceal) {
-    log(`${fighter.name}'s breathing is heavy.`);
-  }
-  if (fighter.balance < 40) {
-    log(`${fighter.name} looks unsteady on their feet.`);
-  }
-}
-  function legStability(fighter) {
-  const left = fighter.limbs.leftLeg.knee;
-  const right = fighter.limbs.rightLeg.knee;
-  const avg = (left + right) / 2;
+function legBalancePenalty(fighter) {
+  const legs =
+    fighter.limbs.leftLeg.thigh +
+    fighter.limbs.rightLeg.thigh;
 
-  if (avg < 30) return -30;
-  if (avg < 60) return -15;
+  if (legs < 120) return 2;
+  if (legs < 80) return 4;
   return 0;
 }
 
-  
+// ---------- LIMB PENALTIES ----------
+function armAccuracyPenalty(fighter) {
+  const arms =
+    fighter.limbs.leftArm.forearm +
+    fighter.limbs.rightArm.forearm;
+
+  if (arms < 120) return -0.1;
+  if (arms < 80) return -0.25;
+  return 0;
+}
+
+function legEvasionPenalty(fighter) {
+  const legs =
+    fighter.limbs.leftLeg.calf +
+    fighter.limbs.rightLeg.calf;
+
+  if (legs < 120) return -0.1;
+  if (legs < 80) return -0.25;
+  return 0;
+}
+
+function headVisionPenalty(fighter) {
+  const face = fighter.limbs.head.face;
+
+  if (face < 60) return -0.15;
+  if (face < 30) return -0.3;
+  return 0;
+}
+
+// ---------- TELLS ----------
+function painTell(fighter, part, sub) {
+  if (fighter.buffs.pokerFace) return;
+
+  const v = fighter.limbs[part][sub];
+
+  if (v < 20) log(`${fighter.name} grimaces in pain.`);
+  else if (v < 50) log(`${fighter.name} winces.`);
+}
+
+function breathingTell(fighter) {
+  if (fighter.stamina < 20) {
+    log(`${fighter.name} is gasping for air.`);
+  } else if (fighter.stamina < 40) {
+    log(`${fighter.name}'s breathing is heavy.`);
+  }
+}
+
+// ---------- STANCE ----------
+function isOrthodox(fighter) {
+  return fighter.stance === "Orthodox";
+}
+
+function leadHand(fighter) {
+  return isOrthodox(fighter) ? "leftArm" : "rightArm";
+}
+
+function rearHand(fighter) {
+  return isOrthodox(fighter) ? "rightArm" : "leftArm";
+}
+
+// ---------- RANGE ----------
+function rangeAllows(move, fighter) {
+  if (!move.range) return true;
+  return move.range.includes(fighter.range);
+}
+
 // ---------------- MOVE DEFINITIONS ----------------
 
 const MOVES = {
@@ -228,140 +262,203 @@ function bufferDefense(moveKey) {
 
 // ---------------- TURN LOGIC ----------------
 
+let bufferedDefense = null;
 
-  
-function performMove(attacker, defender, moveKey) {
-  const move = MOVES[moveKey];
-  attacker.stamina -= move.stamina;
-  attacker.delay += move.delay;
-
-  let acc = move.accuracy || 1;
-  acc += attacker.tempAccuracyBonus || 0;
-
-
-  if (attacker.buffs.accuracy) acc += attacker.buffs.accuracy.value;
-  if (attacker.stamina < 30) acc -= 0.15;
-
-  if (Math.random() < acc) {
-if (move.damage) {
-  const parts = Object.keys(defender.limbs);
-  const hitPart = parts[Math.floor(Math.random() * parts.length)];
-
-  const limb = defender.limbs[hitPart];
-  const sub = Object.keys(limb)[Math.floor(Math.random() * Object.keys(limb).length)];
-  limb[sub] -= move.damage;
-
-  defender.balance += legStability(defender);
-
-  log(`${attacker.name} lands a ${move.name} on the ${hitPart} (${sub}).`);
-
-  if (!defender.buffs.conceal) {
-    log(injuryDesc(limb[sub], `${hitPart} ${sub}`));
-  }
-
-  if (defender.balance <= 0) {
-    log(`${defender.name} loses balance and falls!`);
-    defender.delay += 2;
-    defender.balance = 20;
-  }
+function bufferDefense(moveKey) {
+  bufferedDefense = moveKey;
+  log(`You prepare to ${moves[moveKey].name.toLowerCase()}.`);
 }
 
-
-    if (move.rangeChange) {
-      attacker.range = defender.range = move.rangeChange;
-      log(`${attacker.name} forces the fight into the ${move.rangeChange}.`);
-    }
-
-    if (move.buff) {
-      attacker.buffs[moveKey] = {
-        value: move.buff.accuracy || null,
-        turns: move.buff.turns,
-        conceal: move.buff.conceal || false
-      };
-      log(`${attacker.name} looks composed and focused.`);
-    }
-
+// ---------- PACE SYSTEM ----------
+function applyPace(fighter, elapsed) {
+  if (elapsed <= 10) {
+    fighter.stamina -= 6;
+    fighter.delay += 0;
+    fighter.tempAccuracy = -0.1;
+    log(`${fighter.name} moves fast and evasively.`);
+  } else if (elapsed <= 20) {
+    fighter.stamina -= 3;
+    fighter.delay += 1;
+    fighter.tempAccuracy = 0;
+    log(`${fighter.name} keeps a steady pace.`);
   } else {
-    log(`${attacker.name}'s ${move.name} misses.`);
-    attacker.balance -= move.balanceRisk || 5;
+    fighter.stamina -= 1;
+    fighter.delay += 2;
+    fighter.tempAccuracy = 0.15;
+    log(`${fighter.name} moves patiently and deliberately.`);
   }
-
-  painTell(attacker);
-  painTell(defender);
 }
 
+// ---------- DEFENSIVE RESOLUTION ----------
+function resolveDefense(attacker, defender) {
+  if (!bufferedDefense) return false;
 
-function enemyTurn() {
-  if (enemy.delay > 0) {
-    enemy.delay--;
-    log("Opponent regains footing.");
+  const roll = Math.random();
+  let success = false;
+
+  if (bufferedDefense === "dodge") success = roll < 0.45;
+  if (bufferedDefense === "slip") success = roll < 0.35;
+  if (bufferedDefense === "parry") success = roll < 0.3;
+
+  if (success) {
+    log(`${defender.name} successfully ${bufferedDefense}s the attack!`);
+    attacker.delay += 1;
+  } else {
+    log(`${defender.name} fails to ${bufferedDefense}.`);
+    defender.delay += 1;
+  }
+
+  bufferedDefense = null;
+  return success;
+}
+
+// ---------- MOVE RESOLUTION ----------
+function performMove(attacker, defender, key) {
+  const move = moves[key];
+  if (!move) return;
+
+  if (attacker.stamina <= 0) {
+    log(`${attacker.name} is too exhausted to act.`);
+    attacker.delay += 2;
     return;
   }
 
-  const choices = ["jab", "cross", "focus"];
-  const choice = choices[Math.floor(Math.random() * choices.length)];
+  // Apply stamina and delay
+  attacker.stamina -= move.stamina || 2;
+  attacker.delay += move.delay || 1;
+
+  // Resolve defensive buffer
+  if (resolveDefense(attacker, defender)) return;
+
+  // Accuracy check
+  let acc = (move.accuracy || 1) + (attacker.tempAccuracy || 0);
+  acc = Math.max(0.1, acc);
+  if (Math.random() > acc) {
+    log(`${attacker.name}'s ${move.name} misses!`);
+    attacker.delay += 1;
+    return;
+  }
+
+  // Target limb
+  const part = move.target || randomBodyPart();
+  const limb = defender.limbs[part];
+  const sub = Object.keys(limb)[Math.floor(Math.random() * Object.keys(limb).length)];
+
+  // Calculate damage
+  let actualDamage = move.damage || 0;
+  limb[sub] -= actualDamage;
+  if (limb[sub] < 0) limb[sub] = 0;
+
+  log(`${attacker.name} lands a ${move.name} on ${defender.name}'s ${sub} (${part}) for ${actualDamage} damage!`);
+  log(injuryDesc(limb[sub], sub));
+
+  // Balance damage
+  let balanceHit = move.balance || Math.floor(actualDamage / 2);
+  balanceHit += legBalancePenalty(defender);
+  applyBalanceDamage(defender, balanceHit);
+
+  // Buffs
+  if (move.buff) {
+    for (const key in move.buff) {
+      defender.buffs[key] = move.buff[key];
+      setTimeout(() => { delete defender.buffs[key]; }, move.buff.turns * 1000);
+    }
+  }
+
+  // Range changes
+  if (move.enterRange) attacker.range = move.enterRange;
+  if (move.exitRange) attacker.range = move.exitRange;
+
+  // Tells
+  painTell(defender, part, sub);
+  breathingTell(defender);
+}
+
+// ---------- ENEMY TURN ----------
+function enemyTurn() {
+  if (enemy.delay > 0) {
+    enemy.delay--;
+    log(`${enemy.name} regains balance.`);
+    return;
+  }
+
+  const keys = Object.keys(moves);
+  const choice = keys[Math.floor(Math.random() * keys.length)];
   performMove(enemy, player, choice);
 }
 
-// ---------------- UI ----------------
+// ---------- PLAYER TURN ----------
+function playerTurn(moveKey) {
+  if (player.delay > 0) {
+    player.delay--;
+    log("You are recovering and cannot act.");
+    return;
+  }
 
+  const elapsed = (Date.now() - turnStart) / 1000;
+  applyPace(player, elapsed);
+
+  performMove(player, enemy, moveKey);
+
+  player.tempAccuracy = 0;
+  turnStart = Date.now();
+}
+
+
+<!-- ---------------- UI ---------------- -->
+<script>
 function updateUI() {
+  // Status
   document.getElementById("status").innerText =
     `You: ${staminaDesc(player.stamina)} | Balance feels ${player.balance > 50 ? "stable" : "shaky"}`;
 
+  // Range
   document.getElementById("range").innerText =
     `Range: ${player.range}`;
 
+  // Stance
   document.getElementById("stance").innerText =
     `Stance: ${player.stance}`;
 
+  // Turn Timer
   const elapsed = Math.floor((Date.now() - turnStart) / 1000);
   document.getElementById("timer").innerText =
     `Turn Timer: ${elapsed}s`;
 
+  // Actions
   const actions = document.getElementById("actions");
   actions.innerHTML = "";
 
-Object.keys(MOVES).forEach(k => {
-  const move = MOVES[k];
-  const btn = document.createElement("button");
-  btn.innerText = move.name;
+  Object.keys(moves).forEach(k => {
+    const move = moves[k];
+    const btn = document.createElement("button");
+    btn.innerText = move.name;
 
-  // ✅ BUFFERED DEFENSIVE MOVES
-  if (move.defensive) {
-    btn.onclick = () => {
-      bufferDefense(k);
-      updateUI();
-    };
+    if (move.defensive) {
+      // Buffered defensive moves
+      btn.onclick = () => {
+        bufferDefense(k);
+        updateUI();
+      };
+    } else {
+      // Normal moves
+      btn.onclick = () => {
+        playerTurn(k);
+        enemyTurn();
+        updateUI();
+      };
+    }
+
     actions.appendChild(btn);
-    return;
-  }
-
-  // ✅ NORMAL MOVES
-btn.onclick = () => {
-  const elapsed = (Date.now() - turnStart) / 1000;
-
-  const pace = applyPaceEffects(player, elapsed);
-  player.tempAccuracyBonus = pace.accuracy;
-
-  performMove(player, enemy, k);
-
-  player.tempAccuracyBonus = 0;
-
-  enemyTurn();
-  turnStart = Date.now();
-  updateUI();
-};
-
-
-  actions.appendChild(btn);
-});
-
+  });
 }
 
+// Optional: auto-update timer every 1 second
+setInterval(() => {
+  updateUI();
+}, 1000);
+
+// Start the fight
 log("The fight begins.");
 updateUI();
 </script>
-
-</body>
-</html>
